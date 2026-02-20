@@ -12,20 +12,17 @@ const int WINDOW_WIDTH  = 1000, WINDOW_HEIGHT = 600;
 const int MENU_H = 48;
 
 // ناحیه‌ها
-SDL_Rect leftPanel  = { 80, 50, 200, 550 };   // پالت بلاک‌ها
-SDL_Rect workspace  = { 280, 50, 470, 550 };  // محیط بلاک‌ها
-SDL_Rect stagePanel = { 710, 50, 290, 550 };  // صحنه
+SDL_Rect leftPanel  = { 80, 50, 200, 550 };
+SDL_Rect workspace  = { 280, 50, 470, 550 };
+SDL_Rect stagePanel = { 710, 50, 290, 550 };
 
-// اسپرایت دایره‌ای
 int spriteX = 845, spriteY = 315, spriteR = 20;
 
-// رسم مستطیل با حاشیه
 void drawRect(SDL_Renderer* ren, SDL_Rect r, SDL_Color fill) {
     SDL_SetRenderDrawColor(ren, fill.r, fill.g, fill.b, fill.a);
     SDL_RenderFillRect(ren, &r);
 }
 
-// رسم دایره
 void drawCircle(SDL_Renderer* ren, int cx, int cy, int r, SDL_Color color) {
     SDL_SetRenderDrawColor(ren, color.r, color.g, color.b, color.a);
     for (int y = -r; y <= r; ++y) {
@@ -41,7 +38,6 @@ bool pointInRect(int x, int y, const SDL_Rect& r) {
     return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 }
 
-// اطلاعات نوع بلاک (رنگ و جایگاه در پالت)
 struct BlockType {
     SDL_Color color;
     SDL_Rect  protoRect;
@@ -80,7 +76,18 @@ void writeLeftText(SDL_Renderer *ren, TTF_Font* font, string text, SDL_Rect rect
     SDL_DestroyTexture(tex);
 }
 
-// ذخیره پروژه
+string getProjectPath() {
+    char* base = SDL_GetBasePath();
+    string path;
+    if (base) {
+        path = string(base) + "project.txt";
+        SDL_free(base);
+    } else {
+        path = "project.txt";
+    }
+    return path;
+}
+
 bool saveBlocks(const string& path, const vector<BlockInstance>& instances) {
     ofstream out(path);
     if (!out) return false;
@@ -93,7 +100,6 @@ bool saveBlocks(const string& path, const vector<BlockInstance>& instances) {
     return true;
 }
 
-// بارگذاری پروژه
 bool loadBlocks(const string& path, vector<BlockInstance>& instances) {
     ifstream in(path);
     if (!in) return false;
@@ -113,6 +119,38 @@ bool loadBlocks(const string& path, vector<BlockInstance>& instances) {
     return true;
 }
 
+// دیالوگ پرسش برای ذخیره قبل از New
+int confirmSaveBeforeNew(SDL_Window* win) {
+    const SDL_MessageBoxButtonData buttons[] = {
+        { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Yes (Save)" },
+        { 0, 2, "No (Don't Save)" },
+        { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Cancel" }
+    };
+
+    const SDL_MessageBoxColorScheme colorScheme = {
+        {
+            { 255, 255, 255 }, // background
+            {   0,   0,   0 }, // text
+            { 100, 100, 100 }, // button border
+            { 220, 220, 220 }, // button background
+            {   0,   0,   0 }  // button selected
+        }
+    };
+
+    SDL_MessageBoxData data = {};
+    data.flags = SDL_MESSAGEBOX_INFORMATION;
+    data.window = win;
+    data.title = "New Project";
+    data.message = "Do you want to save the current project before creating a new one?";
+    data.numbuttons = 3;
+    data.buttons = buttons;
+    data.colorScheme = &colorScheme;
+
+    int buttonid = 0;
+    SDL_ShowMessageBox(&data, &buttonid);
+    return buttonid; // 1=Yes, 2=No, 0=Cancel
+}
+
 int main(int argc, char* argv[]) {
     SDL_Init(SDL_INIT_VIDEO);
     TTF_Init();
@@ -125,7 +163,6 @@ int main(int argc, char* argv[]) {
     SDL_Renderer* ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
     TTF_Font* font = TTF_OpenFont("calibrib.ttf", 18);
 
-    // تعریف چند نوع بلاک با رنگ‌های مشابه Scratch
     vector <BlockType> blockTypes = {
         { {  70,150,255,255}, { 0,  50, 80, 50 } , "motion"},
         { { 150,100,255,255}, { 0, 100, 80, 50 } , "looks"},
@@ -139,18 +176,19 @@ int main(int argc, char* argv[]) {
 
     vector <BlockInstance> instances;
 
-    //آپلود لوگو
     int logo_w, logo_h;
     SDL_Texture *logo= IMG_LoadTexture(ren, "logo.png");
     SDL_QueryTexture(logo, NULL, NULL, &logo_w, &logo_h);
     SDL_Rect logoSize ={-20, -35, 120, 120};
 
-    // File menu
     SDL_Rect fileBtn = {10, 8, 60, 30};
     SDL_Rect fileItemNew  = {10, MENU_H, 120, 28};
     SDL_Rect fileItemSave = {10, MENU_H + 28, 120, 28};
     SDL_Rect fileItemLoad = {10, MENU_H + 56, 120, 28};
     bool fileMenuOpen = false;
+
+    string projectPath = getProjectPath();
+    cout << "Project file path: " << projectPath << endl;
 
     bool running = true;
     while (running) {
@@ -158,46 +196,63 @@ int main(int argc, char* argv[]) {
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) running = false;
 
-            // کلیک ماوس
             if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
                 int mx = e.button.x, my = e.button.y;
                 bool consumed = false;
 
-                // File menu
                 if (pointInRect(mx, my, fileBtn)) {
                     fileMenuOpen = !fileMenuOpen;
+                    cout << "File menu toggled: " << fileMenuOpen << endl;
                     consumed = true;
                 } else if (fileMenuOpen) {
                     if (pointInRect(mx, my, fileItemNew)) {
-                        instances.clear();
-                        fileMenuOpen = false;
-                        consumed = true;
-                    } else if (pointInRect(mx, my, fileItemSave)) {
-                        if (!saveBlocks("project.txt", instances)) {
-                            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Save", "Save failed!", win);
+                        // پرسش برای ذخیره قبل از پاک کردن
+                        if (!instances.empty()) {
+                            int res = confirmSaveBeforeNew(win);
+                            if (res == 1) { // Yes
+                                bool ok = saveBlocks(projectPath, instances);
+                                SDL_ShowSimpleMessageBox(ok ? SDL_MESSAGEBOX_INFORMATION : SDL_MESSAGEBOX_ERROR,
+                                                         "Save", ok ? "Saved successfully." : "Save failed!",
+                                                         win);
+                                if (ok) instances.clear();
+                            } else if (res == 2) { // No
+                                instances.clear();
+                            } else {
+                                // Cancel -> هیچ کاری نکن
+                            }
+                        } else {
+                            // اگر چیزی نیست، مستقیم پاک کن
+                            instances.clear();
                         }
+
+                        fileMenuOpen = false;
+                        cout << "New clicked" << endl;
+                        consumed = true;
+
+                    } else if (pointInRect(mx, my, fileItemSave)) {
+                        bool ok = saveBlocks(projectPath, instances);
+                        cout << "Save clicked: " << (ok ? "OK" : "FAIL") << endl;
+                        SDL_ShowSimpleMessageBox(ok ? SDL_MESSAGEBOX_INFORMATION : SDL_MESSAGEBOX_ERROR,
+                                                 "Save", ok ? "Saved successfully." : "Save failed!",
+                                                 win);
                         fileMenuOpen = false;
                         consumed = true;
                     } else if (pointInRect(mx, my, fileItemLoad)) {
-                        if (!loadBlocks("project.txt", instances)) {
-                            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Load", "Load failed!", win);
-                        }
+                        bool ok = loadBlocks(projectPath, instances);
+                        cout << "Load clicked: " << (ok ? "OK" : "FAIL") << endl;
+                        SDL_ShowSimpleMessageBox(ok ? SDL_MESSAGEBOX_INFORMATION : SDL_MESSAGEBOX_ERROR,
+                                                 "Load", ok ? "Loaded successfully." : "Load failed!",
+                                                 win);
                         fileMenuOpen = false;
                         consumed = true;
                     } else {
-                        // کلیک بیرون از منو
                         fileMenuOpen = false;
                     }
                 }
 
-                if (my < MENU_H) {
-                    // جلوگیری از درگ در نوار بالا
-                    consumed = true;
-                }
-
+                if (my < MENU_H) consumed = true;
                 if (consumed) continue;
 
-                // اول بررسی بلوک‌های داخل Workspace (از بالا به پایین)
                 bool picked = false;
                 for (int i = (int)instances.size() - 1; i >= 0; --i) {
                     if (pointInRect(mx, my, instances[i].rect)) {
@@ -230,7 +285,6 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            // درگ
             if (e.type == SDL_MOUSEMOTION) {
                 int mx = e.motion.x, my = e.motion.y;
                 if (!instances.empty()) {
@@ -242,7 +296,6 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            // رها کردن
             if (e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_LEFT && !instances.empty()) {
                 BlockInstance &b = instances.back();
                 if (b.dragging) {
@@ -264,41 +317,33 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // پس‌زمینه
         SDL_SetRenderDrawColor(ren, 220, 220, 220, 255);
         SDL_RenderClear(ren);
 
-        // نوار بالا و لوگو
         boxRGBA(ren, 0, 0, WINDOW_WIDTH, MENU_H, 160, 70, 165, 200);
         SDL_RenderCopy(ren, logo, NULL, &logoSize);
 
-        // File button
         boxRGBA(ren, fileBtn.x, fileBtn.y, fileBtn.x + fileBtn.w, fileBtn.y + fileBtn.h, 120, 50, 130, 255);
         writeLeftText(ren, font, "File", fileBtn, 10);
 
-        // پنل‌ها
         drawRect(ren, leftPanel,  {255,255,255,255});
         drawRect(ren, workspace,  {248,249,255,255});
         drawRect(ren, stagePanel, {240,244,255,255});
         vlineRGBA(ren, 280, 50, WINDOW_HEIGHT, 0, 0, 0, 255);
         vlineRGBA(ren, 710, 50, WINDOW_HEIGHT, 0, 0, 0, 255);
 
-        // بلوک‌های پالت
         for (auto& bt : blockTypes){
             drawRect(ren, bt.protoRect, bt.color);
             writeCenteredText(ren, font, bt.name, bt.protoRect);
         }
 
-        // بلوک‌های داخل Workspace
         for (auto& b : instances) {
             drawRect(ren, b.rect, blockTypes[b.typeIndex].color);
             writeCenteredText(ren, font, blockTypes[b.typeIndex].name, b.rect);
         }
 
-        // اسپرایت
         drawCircle(ren, spriteX, spriteY, spriteR, {255,159,28,255});
 
-        // ✅ Dropdown drawn last so it stays on top
         if (fileMenuOpen) {
             boxRGBA(ren, fileItemNew.x,  fileItemNew.y,  fileItemNew.x + fileItemNew.w,  fileItemNew.y + fileItemNew.h,  90, 90, 90, 255);
             boxRGBA(ren, fileItemSave.x, fileItemSave.y, fileItemSave.x + fileItemSave.w, fileItemSave.y + fileItemSave.h, 90, 90, 90, 255);
